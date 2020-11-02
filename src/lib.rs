@@ -7,7 +7,12 @@ use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::path::Path;
 
+#[cfg(feature = "serde")]
+#[macro_use]
+extern crate serde;
+
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SourceFileImportData {
     /**
      * Map from import path to the name that was imported
@@ -90,6 +95,7 @@ lazy_static! {
     .unwrap();
 }
 
+#[cfg(test)]
 mod tests {
     use crate::parse_source_text_imports;
     use std::collections::HashSet;
