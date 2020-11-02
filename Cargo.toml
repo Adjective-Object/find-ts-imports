@@ -1,0 +1,12 @@
+[package]
+name = "find-ts-imports"
+version = "0.1.0"
+authors = ["Maxwell Huang-Hobbs <mhuan13@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+lazy_static = "1.4.0"
+regex = "1.4.2"
+
+[dev_dependencies]
+cargo-watch = "^7.5.0"
