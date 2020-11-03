@@ -17,7 +17,7 @@ pub struct SourceFileImportData {
     /**
      * Map from import path to the name that was imported
      */
-    imports: HashMap<String, Option<HashSet<String>>>,
+    pub imports: HashMap<String, Option<HashSet<String>>>,
 }
 
 fn parse_imported_names(name_stub: &str) -> HashSet<String> {
