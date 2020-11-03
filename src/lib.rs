@@ -11,7 +11,7 @@ use std::path::Path;
 #[macro_use]
 extern crate serde;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SourceFileImportData {
     /**
