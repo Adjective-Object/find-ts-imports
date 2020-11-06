@@ -90,7 +90,7 @@ pub fn parse_source_file_imports(source_file_path: &Path) -> SourceFileImportDat
 
 lazy_static! {
     static ref IMPORT_REGEX: regex::Regex = Regex::new(
-        r###"import (?:\s*(\*)\s*|([\w]+)|(\{(?m:\s*(?:(?:.*(?:,\s*)?)+)\s*)\})) from (?:'(.*)'|"(.*)")|require\((?m:\s*(?:"(.*)"|'(.*)')\s*)\)|import\((?m:\s*"(.*)"|'(.*)'\s*)\)"###,
+        r###"(?:import|export) (?:\s*(\*)\s*|([\w]+)|(\{(?m:\s*(?:(?:.*(?:,\s*)?)+)\s*)\})) from (?:'(.*)'|"(.*)")|require\((?m:\s*(?:"([^)]*)"|'([^)]*)')\s*)\)|import\((?m:\s*"([^)]*)"|'([^)]*)'\s*)\)"###,
     )
     .unwrap();
 }
@@ -236,5 +236,55 @@ mod tests {
                 "some-import_fn-path" => Option::None
             )
         )
+    }
+
+    #[test]
+    fn parse_multiple_import_one_line() {
+        let r = parse_source_text_imports(
+            r#"
+            return someCondition() ? import('./importOne') : import('./importOther');
+        "#,
+        );
+
+        assert_eq!(
+            r.imports,
+            map!(
+                "./importOne" => Option::None,
+                "./importOther" => Option::None
+            )
+        );
+    }
+
+    #[test]
+    fn parse_multiple_require_one_line() {
+        let r = parse_source_text_imports(
+            r#"
+            return someCondition() ? require('./importOne') : require('./importOther');
+        "#,
+        );
+
+        assert_eq!(
+            r.imports,
+            map!(
+                "./importOne" => Option::None,
+                "./importOther" => Option::None
+            )
+        );
+    }
+
+    #[test]
+    fn parse_export_star_statement() {
+        let r = parse_source_text_imports(
+            r#"
+            export * from './blahblahblah';
+        "#,
+        );
+
+        assert_eq!(
+            r.imports,
+            map!(
+                "./blahblahblah" => Option::Some(set!("*"))
+            )
+        );
     }
 }
