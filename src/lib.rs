@@ -99,7 +99,6 @@ pub fn parse_source_text_imports(file_text: &str) -> SourceFileImportData {
     let mut import_paths_map = HashMap::<String, Option<HashSet<String>>>::new();
 
     let comment_ranges = get_comment_ranges(file_text);
-    println!("comment_Ranges: {:#?}", comment_ranges);
 
     for captures in IMPORT_REGEX.captures_iter(&file_text) {
         let collected = captures
@@ -113,7 +112,6 @@ pub fn parse_source_text_imports(file_text: &str) -> SourceFileImportData {
 
         if collected.len() != 0 {
             let match_start_pos = collected.get(0).unwrap().start();
-            println!("match_range! {:#?}", match_start_pos);
             if comment_ranges
                 .iter()
                 .any(|a| a.start <= match_start_pos && a.end >= match_start_pos)
