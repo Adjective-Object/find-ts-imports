@@ -6,6 +6,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::path::Path;
+use std::str;
 
 #[cfg(feature = "serde")]
 #[macro_use]
@@ -39,8 +40,66 @@ fn parse_imported_names(name_stub: &str) -> HashSet<String> {
     }
 }
 
+fn get_comment_ranges(source_str: &str) -> Vec<std::ops::Range<usize>> {
+    let mut in_line_comment = false;
+    let mut in_multi_line_comment = false;
+    let mut prev_byte: u8 = 0;
+    let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut range_start: usize = 0;
+    let mut unicode_mb_width = 0;
+    for (i, source_byte) in source_str.bytes().enumerate() {
+        if unicode_mb_width > 1 {
+            unicode_mb_width -= 1;
+            continue;
+        }
+        // unicode
+        if source_byte >= 128 {
+            // this is a multibyte string.
+            if source_byte > 0xF0 {
+                unicode_mb_width = 3;
+            } else if source_byte > 0xE0 {
+                unicode_mb_width = 2;
+            } else {
+                unicode_mb_width = 1;
+            }
+            continue;
+        }
+
+        if in_line_comment {
+            if source_byte == *NEWLINE_BYTE {
+                in_line_comment = false;
+                ranges.push(std::ops::Range {
+                    start: range_start,
+                    end: i,
+                })
+            }
+        } else if in_multi_line_comment {
+            if source_byte == *SLASH_BYTE && prev_byte == *STAR_BYTE {
+                in_multi_line_comment = false;
+                ranges.push(std::ops::Range {
+                    start: range_start,
+                    end: i,
+                })
+            }
+        } else if source_byte == *SLASH_BYTE && prev_byte == *SLASH_BYTE {
+            in_line_comment = true;
+            range_start = i - 1;
+        } else if source_byte == *STAR_BYTE && prev_byte == *SLASH_BYTE {
+            in_multi_line_comment = true;
+            range_start = i - 1;
+        }
+
+        prev_byte = source_byte
+    }
+
+    return ranges;
+}
+
 pub fn parse_source_text_imports(file_text: &str) -> SourceFileImportData {
     let mut import_paths_map = HashMap::<String, Option<HashSet<String>>>::new();
+
+    let comment_ranges = get_comment_ranges(file_text);
+    println!("comment_Ranges: {:#?}", comment_ranges);
 
     for captures in IMPORT_REGEX.captures_iter(&file_text) {
         let collected = captures
@@ -51,6 +110,18 @@ pub fn parse_source_text_imports(file_text: &str) -> SourceFileImportData {
                 _ => panic!("had Nothing after filtering out Nothing"),
             })
             .collect::<Vec<regex::Match>>();
+
+        if collected.len() != 0 {
+            let match_start_pos = collected.get(0).unwrap().start();
+            println!("match_range! {:#?}", match_start_pos);
+            if comment_ranges
+                .iter()
+                .any(|a| a.start <= match_start_pos && a.end >= match_start_pos)
+            {
+                // if this was captured, ignore it.
+                continue;
+            }
+        }
 
         if collected.len() == 2 {
             // did not capture any names, this is just the import path
@@ -93,6 +164,52 @@ lazy_static! {
         r###"(?:import|export) (?:\s*(\*)\s*|([\w]+)|(\{(?m:\s*(?:(?:.*(?:,\s*)?)+)\s*)\})) from (?:'(.*)'|"(.*)")|require\((?m:\s*(?:"([^)]*)"|'([^)]*)')\s*)\)|import\((?m:\s*"([^)]*)"|'([^)]*)'\s*)\)"###,
     )
     .unwrap();
+}
+
+lazy_static! {
+    static ref LINE_COMMENT_REGEX: regex::Regex = Regex::new(r###"^\s*//"###,).unwrap();
+}
+
+lazy_static! {
+    static ref NEWLINE_BYTE: u8 = {
+        let newline_bytes = "\n".as_bytes();
+        if newline_bytes.len() != 1 {
+            panic!(
+                "'\\n' is supposed to be a single byte character, but got {:?}",
+                newline_bytes
+            );
+        }
+
+        newline_bytes[0]
+    };
+}
+
+lazy_static! {
+    static ref SLASH_BYTE: u8 = {
+        let newline_bytes = "/".as_bytes();
+        if newline_bytes.len() != 1 {
+            panic!(
+                "'/' is supposed to be a single byte character, but got {:?}",
+                newline_bytes
+            );
+        }
+
+        newline_bytes[0]
+    };
+}
+
+lazy_static! {
+    static ref STAR_BYTE: u8 = {
+        let newline_bytes = "*".as_bytes();
+        if newline_bytes.len() != 1 {
+            panic!(
+                "'*' is supposed to be a single byte character, but got {:?}",
+                newline_bytes
+            );
+        }
+
+        newline_bytes[0]
+    };
 }
 
 #[cfg(test)]
@@ -284,6 +401,82 @@ mod tests {
             r.imports,
             map!(
                 "./blahblahblah" => Option::Some(set!("*"))
+            )
+        );
+    }
+
+    #[test]
+    fn parse_require_in_line_comment() {
+        let r = parse_source_text_imports(
+            r#"
+            require('test');
+            require('toast'); // trailing line comments
+            // require('bread');
+            // don't use this either require('butter');
+        "#,
+        );
+
+        assert_eq!(
+            r.imports,
+            map!(
+                "test" => Option::None,
+                "toast" => Option::None
+            )
+        );
+    }
+
+    #[test]
+    fn parse_require_in_comment_unicode_garbage() {
+        // this test has a comment with a lot of unicode in it
+        // in an attempt to desync the regex buffer index from the
+        // character range index, to make sure we are using
+        // both when indexing.
+        let r = parse_source_text_imports(
+            r#"/*
+🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮
+🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮
+🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮
+🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮
+🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮
+🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮
+🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮
+🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮🤮
+            require('lol')
+            */
+        "#,
+        );
+
+        assert_eq!(r.imports, std::collections::HashMap::new());
+    }
+
+    #[test]
+    fn parse_require_in_multi_line_comment() {
+        let r = parse_source_text_imports(
+            r#"
+            require('test');
+            /**
+             * require('bread') in docstring // trailing line comments
+             */
+            require('toast'); 
+            /* don't use this either require('butter') */
+            /*
+            
+            
+            
+            don't use this also
+            
+            
+            require('tomato')
+            
+            */
+        "#,
+        );
+
+        assert_eq!(
+            r.imports,
+            map!(
+                "test" => Option::None,
+                "toast" => Option::None
             )
         );
     }
