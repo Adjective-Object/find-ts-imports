@@ -1,6 +1,6 @@
 [package]
 name = "find-ts-imports"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Maxwell Huang-Hobbs <mhuan13@gmail.com>"]
 edition = "2018"
 
